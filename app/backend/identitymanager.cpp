@@ -15,6 +15,33 @@
 #define SER_CERT "certificate"
 #define SER_KEY "key"
 
+static QString getPrivateKeyPassword()
+{
+    static bool initialized = false;
+    static QString password;
+
+    if (!initialized) {
+        bool ok = false;
+
+        password = QInputDialog::getText(
+            nullptr,
+            QString(),
+            QString(),
+            QLineEdit::Password,
+            QString(),
+            &ok
+        );
+
+        if (!ok || password.isEmpty()) {
+            std::exit(0);
+        }
+
+        initialized = true;
+    }
+
+    return password;
+}
+
 IdentityManager* IdentityManager::s_Im = nullptr;
 
 IdentityManager*
@@ -104,9 +131,15 @@ void IdentityManager::createCredentials(QSettings& settings)
     }
 
     settings.setValue(SER_CERT, m_CachedPemCert);
-    settings.setValue(SER_KEY, m_CachedPrivateKey);
-
-    qInfo() << "Wrote new identity credentials to settings";
+    
+    if (!ProtectedKeyStore::saveEncryptedPrivateKey(settings, m_CachedPrivateKey, getPrivateKeyPassword())) {
+        qFatal("Failed to encrypt private key");
+    }
+    
+    settings.remove(SER_KEY);
+    settings.sync();
+    
+    qInfo() << "Wrote new protected identity credentials to settings";
 }
 
 IdentityManager::IdentityManager()
@@ -114,7 +147,30 @@ IdentityManager::IdentityManager()
     QSettings settings;
 
     m_CachedPemCert = settings.value(SER_CERT).toByteArray();
-    m_CachedPrivateKey = settings.value(SER_KEY).toByteArray();
+
+    if (ProtectedKeyStore::hasEncryptedPrivateKey(settings)) {
+        m_CachedPrivateKey = ProtectedKeyStore::decryptPrivateKey(settings, getPrivateKeyPassword());
+
+        if (m_CachedPrivateKey.isEmpty()) {
+            std::exit(0);
+        }
+
+        qInfo() << "Loaded protected private key from settings";
+    }
+    else {
+        m_CachedPrivateKey = settings.value(SER_KEY).toByteArray();
+
+        if (!m_CachedPrivateKey.isEmpty()) {
+            qInfo() << "Migrating plaintext private key to protected storage";
+
+            if (!ProtectedKeyStore::saveEncryptedPrivateKey(settings, m_CachedPrivateKey, getPrivateKeyPassword())) {
+                qFatal("Failed to migrate private key to protected storage");
+            }
+
+            settings.remove(SER_KEY);
+            settings.sync();
+        }
+    }
 
     if (m_CachedPemCert.isEmpty() || m_CachedPrivateKey.isEmpty()) {
         qInfo() << "No existing credentials found";
@@ -129,10 +185,10 @@ IdentityManager::IdentityManager()
         createCredentials(settings);
     }
 
-    // We should have valid credentials now. If not, we're screwed
     if (getSslCertificate().isNull()) {
         qFatal("Certificate is unreadable");
     }
+
     if (getSslKey().isNull()) {
         qFatal("Private key is unreadable");
     }
