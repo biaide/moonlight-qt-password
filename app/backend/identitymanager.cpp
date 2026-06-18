@@ -1,8 +1,11 @@
 #include "identitymanager.h"
+#include "protectedkeystore.h"
 #include "utils.h"
 
 #include <QDebug>
-
+#include <QInputDialog>
+#include <QLineEdit>
+#include <cstdlib>
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
