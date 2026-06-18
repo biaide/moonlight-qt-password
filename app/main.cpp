@@ -1,4 +1,5 @@
 #include <QGuiApplication>
+#include <QApplication>
 #include <QStyleHints>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -758,6 +759,7 @@ int main(int argc, char *argv[])
     }
 
     QGuiApplication app(argc, argv);
+    QApplication app(argc, argv);
 
 #ifdef Q_OS_DARWIN
     // macOS defaults "Keyboard navigation" to text fields and lists only, which
