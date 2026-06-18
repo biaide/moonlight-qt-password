@@ -5,6 +5,7 @@
 #include <QDebug>
 #include <QInputDialog>
 #include <QLineEdit>
+#include <QCryptographicHash>
 #include <cstdlib>
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
@@ -40,6 +41,52 @@ static QString getPrivateKeyPassword()
     }
 
     return password;
+}
+
+static bool certificateMatchesPrivateKey(const QByteArray& pemCert, const QByteArray& pemKey)
+{
+    bool match = false;
+
+    BIO* certBio = BIO_new_mem_buf(pemCert.constData(), pemCert.size());
+    if (!certBio) {
+        return false;
+    }
+
+    X509* cert = PEM_read_bio_X509(certBio, nullptr, nullptr, nullptr);
+    BIO_free(certBio);
+
+    if (!cert) {
+        return false;
+    }
+
+    BIO* keyBio = BIO_new_mem_buf(pemKey.constData(), pemKey.size());
+    if (!keyBio) {
+        X509_free(cert);
+        return false;
+    }
+
+    EVP_PKEY* privateKey = PEM_read_bio_PrivateKey(keyBio, nullptr, nullptr, nullptr);
+    BIO_free(keyBio);
+
+    if (!privateKey) {
+        X509_free(cert);
+        return false;
+    }
+
+    EVP_PKEY* publicKey = X509_get_pubkey(cert);
+    if (publicKey) {
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+        match = EVP_PKEY_eq(publicKey, privateKey) == 1;
+#else
+        match = EVP_PKEY_cmp(publicKey, privateKey) == 1;
+#endif
+        EVP_PKEY_free(publicKey);
+    }
+
+    EVP_PKEY_free(privateKey);
+    X509_free(cert);
+
+    return match;
 }
 
 IdentityManager* IdentityManager::s_Im = nullptr;
@@ -192,6 +239,13 @@ IdentityManager::IdentityManager()
     if (getSslKey().isNull()) {
         qFatal("Private key is unreadable");
     }
+    if (!certificateMatchesPrivateKey(m_CachedPemCert, m_CachedPrivateKey)) {
+    qFatal("Identity certificate and private key do not match");
+    }
+    
+    qInfo() << "Identity certificate and private key match";
+    qInfo() << "Identity certificate SHA256:"
+            << QCryptographicHash::hash(m_CachedPemCert, QCryptographicHash::Sha256).toHex();
 }
 
 QSslCertificate
