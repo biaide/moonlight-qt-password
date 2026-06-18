@@ -112,3 +112,177 @@ for different architectures, which handle building deps and extra linking for yo
 3. Send Pull Requests
 
 Check out our [website](https://moonlight-stream.org) for project links and information.
+
+## Password-protected portable identity
+
+This fork adds startup password protection for the Moonlight client private key.
+
+Moonlight normally stores its client certificate and private key in the settings file. This fork keeps the client certificate visible, but encrypts the client private key with a password before writing it to `Moonlight.ini`.
+
+This is mainly useful for portable builds. If someone copies the whole portable Moonlight folder, they should not be able to use the already-paired client identity without knowing the password.
+
+### What is protected
+
+The protected data is the Moonlight client private key.
+
+The password does not encrypt the whole configuration file. Host records and other settings may still exist in `Moonlight.ini`, but the paired client identity cannot be used unless the private key is decrypted successfully.
+
+The encrypted private key is stored with fields like:
+
+```ini
+key_protection=password-v1
+key_kdf=pbkdf2-sha256
+key_iter=800000
+key_salt=...
+key_nonce=...
+key_ciphertext=...
+```
+
+The old plaintext key field is removed:
+
+```ini
+key=...
+```
+
+### First run
+
+On first launch, Moonlight asks for a password.
+
+If no existing encrypted private key is found, the password entered on this first launch becomes the password for the new client identity.
+
+Moonlight then generates a new client certificate and private key, encrypts the private key with that password, and writes the protected identity to `Moonlight.ini`.
+
+Important: remember the first password. There is no recovery if it is forgotten.
+
+### Normal launch
+
+On later launches, Moonlight asks for the password before loading the main UI.
+
+If the password is correct, the encrypted private key is decrypted and Moonlight starts normally.
+
+If the password is wrong or the dialog is cancelled, Moonlight exits immediately.
+
+### Forgotten password
+
+If the password is forgotten, the old encrypted private key cannot be recovered.
+
+To reset the client identity, delete or rename the portable settings directory, for example:
+
+```bat
+cd /d C:\test\MoonlightJimothyPassword
+ren "Moonlight Game Streaming Project" "Moonlight Game Streaming Project.forgot-password"
+Moonlight.exe
+```
+
+After reset, Moonlight will generate a new certificate and private key. All hosts must be paired again because the host sees this as a new Moonlight client.
+
+### Pairing note
+
+The password does not come from the host and pairing does not normally change the client private key.
+
+The flow is:
+
+```text
+Moonlight generates client certificate + private key
+Moonlight encrypts the private key with the startup password
+During pairing, the host records/trusts the client certificate
+On later connections, Moonlight uses the private key to prove it is the same paired client
+```
+
+If `Moonlight.ini` is deleted, a new client certificate/private key is generated. The old host pairing will no longer match and the host must be paired again.
+
+### Identity self-check
+
+This fork also checks that the certificate stored in settings matches the decrypted private key.
+
+If they do not match, Moonlight stops with:
+
+```text
+Identity certificate and private key do not match
+```
+
+If they match, the log contains:
+
+```text
+Identity certificate and private key match
+Identity certificate SHA256: ...
+```
+
+The SHA256 value is only the certificate fingerprint. The private key is not printed.
+
+### Files changed for future upstream merges
+
+When applying this patch to a newer official Moonlight Qt release, check these files:
+
+```text
+app/backend/protectedkeystore.h
+app/backend/protectedkeystore.cpp
+app/backend/identitymanager.cpp
+app/app.pro
+app/main.cpp
+```
+
+Required changes:
+
+```text
+1. Add ProtectedKeyStore class
+   - PBKDF2-HMAC-SHA256
+   - AES-256-GCM
+   - salt / nonce / tag
+   - key_protection=password-v1
+   - key_kdf=pbkdf2-sha256
+   - key_iter=800000
+
+2. app.pro
+   - add widgets to QT modules
+   - add backend/protectedkeystore.cpp to SOURCES
+   - add backend/protectedkeystore.h to HEADERS
+
+3. main.cpp
+   - use QApplication instead of QGuiApplication
+   - this is needed for QInputDialog password prompt
+
+4. identitymanager.cpp
+   - ask for the password at startup
+   - decrypt encrypted private key if it exists
+   - migrate old plaintext key to encrypted storage
+   - remove the old plaintext key field
+   - create new credentials if no identity exists
+   - verify certificate/private key readability
+   - verify certificate/private key match
+   - log certificate SHA256 fingerprint
+```
+
+### Expected log messages
+
+First run with no existing identity:
+
+```text
+No existing credentials found
+Wrote new protected identity credentials to settings
+Identity certificate and private key match
+Identity certificate SHA256: ...
+```
+
+Normal run with correct password:
+
+```text
+Loaded protected private key from settings
+Identity certificate and private key match
+Identity certificate SHA256: ...
+```
+
+Wrong password or cancelled dialog:
+
+```text
+Moonlight exits before loading the main UI
+```
+
+### Security scope
+
+This is not full configuration encryption.
+
+It protects the Moonlight client private key so that copied portable folders cannot directly reuse an already-paired client identity without the password.
+
+It does not protect against malware already running as the same user while Moonlight is open, and it does not hide every value in `Moonlight.ini`.
+
