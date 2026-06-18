@@ -1,4 +1,3 @@
-#include <QGuiApplication>
 #include <QApplication>
 #include <QStyleHints>
 #include <QQmlApplicationEngine>
@@ -758,7 +757,6 @@ int main(int argc, char *argv[])
         SDL_SetHint("SDL_VIDEO_WAYLAND_MODE_SCALING", "aspect");
     }
 
-    QGuiApplication app(argc, argv);
     QApplication app(argc, argv);
 
 #ifdef Q_OS_DARWIN
