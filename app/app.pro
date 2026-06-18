@@ -1,4 +1,4 @@
-QT += core quick network quickcontrols2 svg
+QT += core quick network quickcontrols2 svg widgets
 CONFIG += c++17
 
 unix:!macx {
@@ -172,6 +172,7 @@ SOURCES += \
     main.cpp \
     backend/computerseeker.cpp \
     backend/identitymanager.cpp \
+    backend/protectedkeystore.cpp \
     backend/nvcomputer.cpp \
     backend/nvhttp.cpp \
     backend/nvpairingmanager.cpp \
